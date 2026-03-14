@@ -2312,25 +2312,74 @@ function submitClient() {
 }
 
 // ── Coach form ────────────────────────────
-function submitCoach() {
-  const n=document.getElementById('coName').value.trim();
-  const c=document.getElementById('coContact').value.trim();
-  const av=document.getElementById('coAvail').value.trim();
-  const bio=document.getElementById('coBio').value.trim();
+// Files are uploaded to Cloudinary (free), then the
+// download links are sent via EmailJS so you can access them.
+//
+// ★ SETUP (one-time, 2 minutes):
+//   1. Sign up free at cloudinary.com
+//   2. Dashboard → Settings → Upload → Add upload preset
+//      Set "Signing Mode" to UNSIGNED, save it
+//   3. Replace CLOUDINARY_CLOUD_NAME and CLOUDINARY_UPLOAD_PRESET below
+
+const CLOUDINARY_CLOUD_NAME    = 'djhqhcayh';
+const CLOUDINARY_UPLOAD_PRESET = 'littlewaves_certs';
+
+async function uploadToCloudinary(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+  const res = await fetch(
+    `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/auto/upload`,
+    { method: 'POST', body: formData }
+  );
+  if (!res.ok) throw new Error(`Upload failed for ${file.name}`);
+  const data = await res.json();
+  return { name: file.name, url: data.secure_url };
+}
+
+async function submitCoach() {
+  const n   = document.getElementById('coName').value.trim();
+  const c   = document.getElementById('coContact').value.trim();
+  const av  = document.getElementById('coAvail').value.trim();
+  const bio = document.getElementById('coBio').value.trim();
   if (!n||!c||!av||!bio) { showErr('coachErr'); return; }
-  const btn=event.target; btn.textContent='SENDING…'; btn.disabled=true;
-  const certs=uploadedFiles.length?uploadedFiles.map(f=>f.name).join(', '):'None uploaded';
-  // TODO: Replace service_ldzibpt + template_dolodzd
-  emailjs.send("service_ldzibpt","template_dolodzd",
-    {coach_name:n,coach_contact:c,availability:av,bio,certifications:certs}
-  ).then(()=>{
-    document.getElementById('coachFormWrap').style.display='none';
+
+  const btn = event.target;
+  btn.textContent = 'UPLOADING FILES…'; btn.disabled = true;
+
+  try {
+    let certLinks = 'No files uploaded.';
+
+    if (uploadedFiles.length > 0) {
+      // Upload each file to Cloudinary and collect the download URLs
+      const uploaded = await Promise.all(uploadedFiles.map(uploadToCloudinary));
+      // Format as a readable list for the email
+      certLinks = uploaded.map((f, i) => `${i+1}. ${f.name}: ${f.url}`).join('\n');
+    }
+
+    btn.textContent = 'SENDING…';
+
+    await emailjs.send("service_ldzibpt", "template_dolodzd", {
+      coach_name:     n,
+      coach_contact:  c,
+      availability:   av,
+      bio:            bio,
+      certifications: certLinks   // {{certifications}} in your EmailJS template
+    });
+
+    document.getElementById('coachFormWrap').style.display = 'none';
     document.getElementById('coachSuccess').classList.add('show');
-  }).catch(err=>{
-    btn.textContent='APPLY NOW'; btn.disabled=false;
-    showErr('coachErr','Something went wrong. Please try again.');
+
+  } catch(err) {
+    btn.textContent = 'APPLY NOW'; btn.disabled = false;
+    // If Cloudinary isn't set up yet, still send the email without file links
+    if (err.message && err.message.includes('Upload failed')) {
+      showErr('coachErr', 'File upload failed. Please check your internet connection and try again.');
+    } else {
+      showErr('coachErr', 'Something went wrong. Please try again.');
+    }
     console.error(err);
-  });
+  }
 }
 </script>
 </body>
